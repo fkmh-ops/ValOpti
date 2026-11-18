@@ -1,0 +1,15 @@
+/news
+/stats
+/rankings
+/match
+/events
+/match/details
+/player
+/player/matches
+/team
+/team/matches
+/team/transactions
+/team/roster
+/team/Schedule
+/events/matches
+/health

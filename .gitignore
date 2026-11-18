@@ -1,0 +1,24 @@
+# Données volumineuses (> limite GitHub de 100 Mo) — à régénérer / télécharger
+data/*.db
+data/*.zip
+data/*.building
+data/build.log
+data/vlrgg scrapper/vlrggapi/
+data/vlrgg scrapper/vlr_json_database/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Node / build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Divers
+.env
+.DS_Store
+Thumbs.db

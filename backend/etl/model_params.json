@@ -1,0 +1,55 @@
+{
+  "model_version": "elo-fitted-v2",
+  "elo": {
+    "k_new": 64,
+    "k": 40,
+    "n_new": 15,
+    "margin": 0.5,
+    "decay_days": 180,
+    "decay_rate": 0.3,
+    "roster_shrink": 0.0,
+    "tier_init": {
+      "VCT": 1700,
+      "Challengers": 1600,
+      "Game Changers": 1450,
+      "Autre": 1450
+    },
+    "map_k": 32.0,
+    "mean": 1500.0
+  },
+  "weights": {
+    "d_elo": 0.5507712409592506,
+    "d_form": 203.53680564405693,
+    "d_map": 0.25385522912717823
+  },
+  "trained_on_maps": 44440,
+  "backtest": {
+    "split": "2025-07-01",
+    "min_matches": 10,
+    "model": "Elo + forme + Elo par carte (K carte 32)",
+    "map_test": {
+      "n": 7806,
+      "log_loss": 0.6675605996363866,
+      "brier": 0.23708172874124275,
+      "accuracy": 0.5953112990007686
+    },
+    "map_test_current": {
+      "n": 7806,
+      "log_loss": 0.6849324900034546,
+      "brier": 0.2441765282522147,
+      "accuracy": 0.5837817063797079
+    },
+    "series_test": {
+      "n": 3149,
+      "log_loss": 0.6528084853844074,
+      "brier": 0.22843745767014953,
+      "accuracy": 0.6290885995554144
+    },
+    "series_test_current": {
+      "n": 3149,
+      "log_loss": 0.6820827827601117,
+      "brier": 0.23847825766622127,
+      "accuracy": 0.6189266433788504
+    }
+  }
+}

@@ -1,0 +1,176 @@
+VALOPTI — RÉSUMÉ DU TRAVAIL
+Date : 18 novembre 2026
+======================================================================
+
+OBJECTIF
+--------
+Transformer la maquette (app/index.html, données fictives) en vraie application :
+backend Python FastAPI, frontend moderne, branchés sur les données collectées
+via l'API vlr.gg (data/valorant.db). Puis vérifier que les données sont intègres
+et propres.
+
+
+1. AUDIT DES DONNÉES (avant tout développement)
+-----------------------------------------------
+Pourquoi : la maquette supposait des tables remplies et cohérentes. L'exploration
+de valorant.db a montré que plusieurs écrans ne pouvaient pas fonctionner tels quels.
+
+Problèmes trouvés dans la base brute :
+- 24 171 matchs BO1 avec le score en rounds (13-7) à la place du score en maps.
+- Table "agents" vide, et le scraper vlr.gg ne renvoie pas l'agent joué :
+  impossible de connaître les rôles des joueurs (indispensable au Draft Maker).
+- players.current_team_id renseigné pour 2 joueurs seulement : la notion de
+  « free agent » était inutilisable.
+- 16 fausses cartes dans game_maps (noms d'agents, texte d'un veto mal découpé, TBD).
+- 3 284 matchs 0-0 sans map (forfaits) traités comme des matchs normaux.
+- Vainqueurs contraires au score, matchs nuls (BO2) avec un vainqueur,
+  maps à 0-0, stats rattachées à une équipe homonyme absente du match.
+- Une date au 01/01/1970, 18 événements qui finissent avant de commencer.
+- player_stats_snapshot et player_agent_stats vides (utilisées par le Scouting).
+- team_rankings ne couvre que 8 régions secondaires (pas EMEA, NA, Pacific...).
+
+
+2. NETTOYAGE DES DONNÉES — backend/etl/build_db.py
+--------------------------------------------------
+Pourquoi : corriger ce qui est corrigeable de façon reproductible, sans jamais
+toucher à la base d'origine (valorant.db reste intacte). Le script produit
+data/valopti.db en ~4 minutes. Chaque correction est tracée dans la table
+etl_issues (source = 'clean').
+
+Corrections :
+- Fausses cartes supprimées ; vetos et maps concernés nettoyés.
+- BO1 : score converti en 1-0, score en rounds conservé (team1_rounds/team2_rounds).
+- Maps 0-0 : score reconstruit depuis les rounds si possible, sinon NULL.
+- Vainqueurs recalculés d'après le score ; nuls BO2 sans vainqueur.
+- Forfaits marqués is_forfeit = 1 et exclus des statistiques et de l'Elo.
+- Lignes rattachées à une équipe homonyme réaffectées à la bonne équipe.
+- Dates invalides mises à NULL.
+- Agents : référentiel des 29 agents avec leur rôle, puis 174 316 lignes de
+  stats complétées grâce au dataset Kaggle VCT 2021-2026 (data_temp.zip),
+  par rapprochement sur une empreinte carte + kills/deaths/assists + ACS + pseudo.
+- Équipe actuelle déduite des feuilles de match ; un joueur est « sans équipe »
+  quand sa dernière équipe a joué au moins 2 matchs sans lui.
+
+Tables dérivées créées pour l'application :
+- team_profile : Elo ValOpti, région, tier (VCT / Challengers / Game Changers / Autre).
+- player_profile : statut (actif / sans équipe / inactif), région, rôle principal.
+- player_stats_snapshot : stats sur 90, 180 et 365 jours.
+- player_agent_stats : pool d'agents par joueur.
+- meta : date des données, pool de cartes actif (7 cartes les plus jouées sur 90 j).
+- compositions, composition_slots, predictions, prediction_maps (tables de l'app).
+
+
+3. VÉRIFICATION — backend/etl/audit.py et data/RAPPORT_QUALITE.md
+------------------------------------------------------------------
+Pourquoi : prouver que les données sont propres, pas seulement l'affirmer.
+Le script applique les mêmes contrôles à la base brute et à la base nettoyée
+et écrit un rapport comparatif.
+
+Résultat : 0 contrôle bloquant en échec sur la base nettoyée (clés étrangères,
+intégrité SQLite, scores, vainqueurs, cartes, cohérence des stats, etc.).
+Les contrôles non bloquants documentent les limites de la source, conservées
+telles quelles.
+
+
+4. BACKEND — FastAPI (backend/valopti/)
+--------------------------------------
+- Une route par écran de la maquette : accueil, scouting, fiches joueur/équipe,
+  recherche, classement, analyse de composition, prédiction, compositions (CRUD).
+- Les compositions sont enregistrées en base (avant : dans le navigateur).
+- Documentation interactive de l'API : http://localhost:8000/docs
+- Le modèle de la maquette a d'abord été repris tel quel et branché sur les
+  vraies données (veto simulé, probabilité de la série). Ses poids ont ensuite
+  été remplacés par des poids appris sur l'historique : voir section 7.
+- Elo ValOpti recalculé sur tous les matchs depuis 2020, car les classements
+  vlr.gg de la base ne couvrent pas les grandes régions.
+
+
+5. FRONTEND — React 19 + TypeScript + Vite (frontend/)
+------------------------------------------------------
+Pourquoi ce choix : c'est la norme actuelle (typage strict, build rapide).
+- Design de la maquette repris à l'identique.
+- Écrans : Accueil, Scouting, Draft Maker, Prédictions, Classement.
+- Une URL par écran ; fiches joueur/équipe partageables (?player=..., ?team=...).
+- En production, le front compilé est servi par FastAPI : une seule commande.
+
+
+6. CORRECTIONS FAITES APRÈS VÉRIFICATION VISUELLE
+-------------------------------------------------
+- Erreur de mon code : une université était classée « VCT » à cause d'un
+  tournoi nommé « College VALORANT Championship ». Corrigé.
+- Biais de méthode : les équipes Game Changers jouent presque uniquement entre
+  elles, leur Elo n'est pas comparable et elles arrivaient 3e et 4e mondiales.
+  Elles ont maintenant leur propre classement, et le Scouting a un filtre Circuit.
+
+
+7. AMÉLIORATION DU MODÈLE DE PRÉDICTION
+---------------------------------------
+Pourquoi : les poids du modèle (0,6 / 300 / 500) venaient de la maquette et
+n'avaient jamais été mesurés sur des matchs réels.
+
+Ce qui a été fait :
+- Backtest (backend/etl/backtest.py) : l'historique est rejoué match par match,
+  en n'utilisant que l'information disponible avant chaque match.
+  Entraînement avant juillet 2025, test sur les matchs suivants.
+- Constat : l'ancien modèle était trop sûr de lui. Quand il annonçait 84 %,
+  l'équipe ne gagnait que 71 % du temps.
+- Réglage de l'Elo par essais mesurés : K plus élevé, écart de maps mieux
+  pris en compte, départ selon le circuit, retour vers la moyenne après
+  6 mois d'inactivité. Réduire l'Elo après un changement de roster a été
+  testé et dégrade les résultats : écarté.
+- Poids appris par régression logistique :
+    Δ = 0,55 × écart d'Elo + 0,25 × écart d'Elo sur la carte + 204 × écart de forme
+  L'Elo propre à chaque carte permet au veto simulé de distinguer les cartes ;
+  le winrate lissé par carte, devenu inutile, a été retiré.
+- Un seul moteur Elo pour le backtest et la production (etl/ratings.py),
+  pour que l'application utilise exactement ce qui a été validé.
+- L'écran Prédictions affiche les vrais poids et le score du backtest.
+
+Résultat sur les séries jamais vues :
+  log loss 0,682 -> 0,653 ; précision 61,9 % -> 62,9 % ;
+  probabilités nettement mieux calibrées.
+Détails : data/RAPPORT_MODELE.md.
+
+
+8. LANCEMENT EN UN CLIC — Lancer_ValOpti.bat
+--------------------------------------------
+Pourquoi : pouvoir ouvrir l'application sans taper de commande.
+Le fichier vérifie l'environnement Python, la base nettoyée et l'interface
+compilée, crée ce qui manque (la base prend ~4 min la première fois), démarre
+le serveur et ouvre le navigateur. Fermer la fenêtre arrête l'application.
+Si Python ou Node.js manquent, un message indique quoi installer.
+
+
+9. TESTS
+--------
+14 tests automatisés (backend/tests/) : contrôles qualité, API, modèle de
+prédiction (dont 3 sur le modèle appris), analyse de composition, cycle de vie
+des compositions. Tous passent. Typage TypeScript strict sans erreur.
+
+
+10. LIMITES CONNUES
+-------------------
+- Agents connus seulement pour le circuit VCT (~25 % des stats). Ailleurs le
+  rôle est « — ». Piste : scraper les profils joueurs (/player de l'API vlr.gg).
+- Stats détaillées pour ~2 900 joueurs sur 12 mois (couverture du scraping).
+- Données arrêtées au 8 octobre 2026 : les « matchs programmés » sont passés.
+- Le statut « sans équipe » est une déduction, à vérifier avant tout contact.
+- Rôles des agents Miks et Veto à confirmer (absents de la maquette).
+- Une map seule reste difficile à prédire (~60 % de bonnes réponses) : même
+  bien réglé, le modèle est limité par les variables disponibles.
+- Affichage mobile non vérifié de façon fiable : à tester sur un vrai téléphone.
+
+
+LANCER L'APPLICATION
+--------------------
+Double-cliquer sur Lancer_ValOpti.bat, puis ouvrir http://localhost:8000
+si le navigateur ne s'ouvre pas tout seul.
+
+En ligne de commande (voir README.md), depuis backend/ :
+  .venv\Scripts\python -m etl.build_db
+  .venv\Scripts\python -m etl.audit
+  .venv\Scripts\python -m uvicorn valopti.main:app --port 8000
+
+Réentraîner le modèle, depuis backend/ :
+  .venv\Scripts\python -m etl.backtest
+  .venv\Scripts\python -m etl.build_db

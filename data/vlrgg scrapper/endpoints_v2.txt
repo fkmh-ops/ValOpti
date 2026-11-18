@@ -1,0 +1,12 @@
+/v2/news
+/v2/stats
+/v2/rankings
+/v2/match
+/v2/events
+/v2/match/details
+/v2/player
+/v2/team
+/v2/events/matches
+/v2/event/{event_id}
+/v2/search
+/v2/health
